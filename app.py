@@ -77,8 +77,8 @@ airline_options = safe_distinct('airline_code')
 
 date_bounds = query_db("""
     SELECT
-        MIN(date(substr(COALESCE(scheduled_departure, scheduled_arrival), 1, 10))) AS min_date,
-        MAX(date(substr(COALESCE(scheduled_departure, scheduled_arrival), 1, 10))) AS max_date
+        MIN(date(substr(COALESCE(NULLIF(scheduled_departure, ''), scheduled_arrival), 1, 10))) AS min_date,
+        MAX(date(substr(COALESCE(NULLIF(scheduled_departure, ''), scheduled_arrival), 1, 10))) AS max_date
     FROM flights
 """)
 
@@ -142,7 +142,8 @@ def build_flight_filters():
         params.extend(selected_airlines)
 
     # Use substr(...,1,10) to strip timezone 'Z' and keep YYYY-MM-DD so SQLite's date() works
-    clauses.append("date(substr(COALESCE(f.scheduled_departure, f.scheduled_arrival), 1, 10)) BETWEEN ? AND ?")
+    # NULLIF treats empty strings as NULL so COALESCE picks the next non-empty value
+    clauses.append("date(substr(COALESCE(NULLIF(f.scheduled_departure, ''), f.scheduled_arrival), 1, 10)) BETWEEN ? AND ?")
     params.extend([str(start_date), str(end_date)])
 
     return " AND ".join(clauses), params
@@ -207,8 +208,9 @@ with tab_dashboard:
 
 with tab_flights:
     st.subheader("Search and Filter Flights")
-    flights_df = query_db(f"SELECT f.flight_number, f.airline_code, f.aircraft_registration, f.origin_iata, f.destination_iata, f.scheduled_departure, f.actual_departure, f.scheduled_arrival, f.actual_arrival, f.status FROM flights f WHERE {filter_sql} ORDER BY COALESCE(f.scheduled_departure, f.scheduled_arrival) LIMIT 1000", filter_params)
-    st.write(f"Showing **{len(flights_df):,}** matching flights (maximum 1,000 displayed).")
+    
+    flights_df = query_db(f"SELECT f.flight_number, f.airline_code, f.origin_iata, f.destination_iata, f.scheduled_departure, f.actual_departure, CASE WHEN f.scheduled_arrival = '' THEN NULL ELSE f.scheduled_arrival END AS scheduled_arrival, CASE WHEN f.actual_arrival = '' THEN NULL ELSE f.actual_arrival END AS actual_arrival, f.aircraft_registration, f.status FROM flights f WHERE {filter_sql} ORDER BY COALESCE(f.scheduled_departure, f.scheduled_arrival) LIMIT 2000", filter_params)
+    st.write(f"Showing **{len(flights_df):,}** matching flights (maximum 2,000 displayed).")
     st.dataframe(flights_df, use_container_width=True, hide_index=True)
 
 
