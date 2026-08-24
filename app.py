@@ -177,11 +177,12 @@ kpi_col3.metric("⏱️ Average Delay (min)", f"{float(avg_delay):.2f}")
 # ============================================================
 # MAIN TABS
 # ============================================================
-tab_dashboard, tab_flights, tab_airport, tab_delay, tab_routes = st.tabs([
+tab_dashboard, tab_flights, tab_airport, tab_delay, tab_sql_queries, tab_routes = st.tabs([
     "📊 Dashboard",
     "🔎 Flight Search",
     "🏢 Airport Details",
     "⏱️ Delay Analysis",
+    "🧮 SQL Queries",
     "🏆 Route Leaderboards",
 ])
 
@@ -246,6 +247,165 @@ with tab_delay:
         st.dataframe(delay_df, use_container_width=True, hide_index=True)
     else:
         st.info("No delay records available to display.")
+
+
+with tab_sql_queries:
+    st.subheader("SQL Queries")
+
+    sql_queries = {
+        "Query 1": """
+SELECT
+    a.model,
+    COUNT(f.flight_id) AS total_flights
+FROM aircraft a
+LEFT JOIN flights f ON a.registration = f.aircraft_registration
+GROUP BY a.model
+ORDER BY total_flights DESC;
+""",
+        "Query 2": """
+SELECT
+    a.registration,
+    a.model,
+    COUNT(f.flight_id) AS flight_count
+FROM aircraft a
+JOIN flights f ON a.registration = f.aircraft_registration
+GROUP BY a.registration, a.model
+HAVING COUNT(f.flight_id) > 5
+ORDER BY flight_count DESC;
+""",
+        "Query 3": """
+SELECT
+    ap.name AS airport_name,
+    COUNT(f.flight_id) AS outbound_flights
+FROM airport ap
+JOIN flights f ON ap.iata_code = f.origin_iata
+GROUP BY ap.airport_id, ap.name
+HAVING COUNT(f.flight_id) > 5
+ORDER BY outbound_flights DESC;
+""",
+        "Query 4": """
+SELECT
+    ap.name AS airport_name,
+    ap.city,
+    COUNT(f.flight_id) AS arriving_flights
+FROM airport ap
+JOIN flights f ON ap.iata_code = f.destination_iata
+GROUP BY ap.airport_id, ap.name, ap.city
+ORDER BY arriving_flights DESC
+LIMIT 3;
+""",
+        "Query 5": """
+SELECT
+    f.flight_number,
+    f.origin_iata,
+    f.destination_iata,
+    orig.country AS origin_country,
+    dest.country AS dest_country,
+    CASE
+        WHEN orig.country = dest.country THEN 'Domestic'
+        ELSE 'International'
+    END AS flight_type
+FROM flights f
+JOIN airport orig ON f.origin_iata = orig.iata_code
+JOIN airport dest ON f.destination_iata = dest.iata_code;
+""",
+        "Query 6": """
+SELECT
+    f.flight_number,
+    f.aircraft_registration,
+    orig.name AS departure_airport,
+    COALESCE(f.actual_arrival, f.scheduled_arrival) AS arrival_time
+FROM flights f
+JOIN airport orig ON f.origin_iata = orig.iata_code
+WHERE f.destination_iata = 'DEL'
+ORDER BY arrival_time DESC
+LIMIT 5;
+""",
+        "Query 7": """
+SELECT
+    ap.iata_code,
+    ap.name,
+    ap.city,
+    ap.country
+FROM airport ap
+LEFT JOIN flights f ON ap.iata_code = f.destination_iata
+WHERE f.flight_id IS NULL;
+""",
+        "Query 8": """
+SELECT
+    f.airline_code,
+    COUNT(f.flight_id) AS total_flights,
+    SUM(CASE WHEN LOWER(f.status) LIKE '%on%time%' OR LOWER(f.status) = 'landed' THEN 1 ELSE 0 END) AS on_time_count,
+    SUM(CASE WHEN LOWER(f.status) LIKE '%delay%' THEN 1 ELSE 0 END) AS delayed_count,
+    SUM(CASE WHEN LOWER(f.status) LIKE '%cancel%' THEN 1 ELSE 0 END) AS cancelled_count
+FROM flights f
+GROUP BY f.airline_code;
+""",
+        "Query 9": """
+SELECT
+    f.flight_number,
+    f.scheduled_departure,
+    f.aircraft_registration,
+    orig.name AS origin_airport,
+    dest.name AS destination_airport,
+    f.status
+FROM flights f
+LEFT JOIN airport orig ON f.origin_iata = orig.iata_code
+LEFT JOIN airport dest ON f.destination_iata = dest.iata_code
+WHERE LOWER(f.status) LIKE '%cancel%'
+ORDER BY f.scheduled_departure DESC;
+""",
+        "Query 10": """
+SELECT
+    orig.city AS origin_city,
+    dest.city AS destination_city,
+    COUNT(DISTINCT a.model) AS distinct_models_count
+FROM flights f
+JOIN airport orig ON f.origin_iata = orig.iata_code
+JOIN airport dest ON f.destination_iata = dest.iata_code
+JOIN aircraft a ON f.aircraft_registration = a.registration
+GROUP BY orig.city, dest.city
+HAVING COUNT(DISTINCT a.model) > 2
+ORDER BY distinct_models_count DESC;
+""",
+        "Query 11": """
+SELECT
+    ap.iata_code,
+    ap.name AS destination_airport,
+    COUNT(f.flight_id) AS total_arrivals,
+    SUM(CASE WHEN LOWER(f.status) LIKE '%delay%' THEN 1 ELSE 0 END) AS delayed_arrivals,
+    ROUND(
+        (CAST(SUM(CASE WHEN LOWER(f.status) LIKE '%delay%' THEN 1 ELSE 0 END) AS REAL) / COUNT(f.flight_id)) * 100,
+        2
+    ) AS delay_percentage
+FROM airport ap
+JOIN flights f ON ap.iata_code = f.destination_iata
+GROUP BY ap.iata_code, ap.name
+ORDER BY delay_percentage DESC;
+""",
+    }
+
+    query_questions = {
+        "Query 1": "Show the total number of flights for each aircraft model, listing the model and its count.",
+        "Query 2": "List all aircraft (registration, model) that have been assigned to more than 5 flights.",
+        "Query 3": "For each airport, display its name and the number of outbound flights, but only for airports with more than 5 flights.",
+        "Query 4": "Find the top 3 destination airports (name, city) by number of arriving flights, sorted by count descending.",
+        "Query 5": "Show for each flight: number, origin, destination, and a label 'Domestic' or 'International' using CASE WHEN on country match.",
+        "Query 6": "Show the 5 most recent arrivals at 'DEL' airport including flight number, aircraft, departure airport name, and arrival time, ordered by latest arrival.",
+        "Query 7": "Find all airports with no arriving flights (never used as a destination in flights table).",
+        "Query 8": "For each airline, count the number of flights by status (e.g., 'On Time', 'Delayed', 'Cancelled) using CASE WHEN.",
+        "Query 9": "Show all cancelled flights, with aircraft and both airports, ordered by departure time descending.",
+        "Query 10": "List all city pairs (origin-destination) that have more than 2 different aircraft models operating flights between them.",
+        "Query 11": "For each destination airport, compute the % of delayed flights (status='Delayed') among all arrivals, sorted by highest percentage.",
+    }
+
+    selected_query_name = st.selectbox("Select a query to run", list(sql_queries))
+    selected_query = sql_queries[selected_query_name]
+    st.markdown(f"**Question:** {query_questions[selected_query_name]}")
+    st.code(selected_query.strip(), language="sql")
+    query_result = query_db(selected_query)
+    st.write(f"Returned **{len(query_result):,}** rows.")
+    st.dataframe(query_result, use_container_width=True, hide_index=True)
 
 
 with tab_routes:
